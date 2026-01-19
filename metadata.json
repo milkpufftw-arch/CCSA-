@@ -1,0 +1,5 @@
+{
+  "name": "NGO 社工補助核銷系統",
+  "description": "一個全面的社工補助驗證與管理系統，具備批次 Excel 匯入、手動紀錄輸入以及 AI 驅動的財務洞察功能。",
+  "requestFramePermissions": []
+}
