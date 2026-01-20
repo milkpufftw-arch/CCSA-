@@ -1,32 +1,40 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { HashRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileUp, ListChecks, PlusCircle, LogOut, Info, AlertTriangle, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { HashRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { 
+  LayoutDashboard, FileUp, ListChecks, PlusCircle, LogOut, 
+  CheckCircle2, Loader2, Sparkles, Trash2, Eye, EyeOff, RotateCcw, 
+  Settings as SettingsIcon, Download, Plus, X, CloudUpload, ExternalLink, CloudCheck, CloudOff, ListOrdered,
+  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { NGO_CONFIG, MOCK_RECORDS } from './constants';
-import { SubsidyRecord, AppTab } from './types';
+import { SubsidyRecord, AppTab, NGOOptions } from './types';
 import { parseExcelFile } from './services/excelService';
 import { getFinancialInsights } from './services/geminiService';
+import { syncToGoogleSheets } from './services/googleSheetsService';
 
-// --- Components ---
+const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+// --- 子組件：側邊欄 ---
 const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => void }) => {
   const menuItems = [
     { id: AppTab.DASHBOARD, label: '儀表板', icon: LayoutDashboard },
     { id: AppTab.IMPORT, label: '批次匯入', icon: FileUp },
     { id: AppTab.MANUAL, label: '單筆補登', icon: PlusCircle },
     { id: AppTab.RECORDS, label: '紀錄查詢', icon: ListChecks },
+    { id: AppTab.SETTINGS, label: '系統設定', icon: SettingsIcon },
   ];
 
   return (
-    <div className="w-64 bg-slate-900 h-screen fixed left-0 top-0 text-white flex flex-col">
+    <div className="w-64 bg-slate-900 h-screen fixed left-0 top-0 text-white flex flex-col z-50">
       <div className="p-6 border-b border-slate-800">
         <h1 className="text-xl font-bold flex items-center gap-2">
           <span className="bg-indigo-500 p-1.5 rounded-lg text-white">NGO</span>
           核銷系統
         </h1>
-        <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">補助驗證系統 v4.8</p>
+        <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">補助驗證系統 v9.8</p>
       </div>
-      
       <nav className="flex-1 mt-6 px-4 space-y-2">
         {menuItems.map((item) => (
           <Link
@@ -43,12 +51,8 @@ const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => v
           </Link>
         ))}
       </nav>
-
       <div className="p-4 border-t border-slate-800">
-        <button 
-          onClick={onLogout}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all w-full"
-        >
+        <button onClick={onLogout} className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all w-full">
           <LogOut size={20} />
           <span className="font-medium">登出系統</span>
         </button>
@@ -57,88 +61,178 @@ const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => v
   );
 };
 
-const Dashboard = ({ records }: { records: SubsidyRecord[] }) => {
-  const totalAmount = useMemo(() => records.reduce((sum, r) => sum + r.amount, 0), [records]);
-  const [insight, setInsight] = useState<string>('');
-  const [loadingInsight, setLoadingInsight] = useState(false);
+// --- 子組件：系統設定 ---
+const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions: React.Dispatch<React.SetStateAction<NGOOptions>> }) => {
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
 
-  const stats = useMemo(() => {
-    const clients = new Set(records.map(r => r.clientName)).size;
-    const sources = new Set(records.map(r => r.source)).size;
-    return { clients, sources };
-  }, [records]);
-
-  const generateAIInsight = async () => {
-    if (records.length === 0) return;
-    setLoadingInsight(true);
-    const result = await getFinancialInsights(records);
-    setInsight(result);
-    setLoadingInsight(false);
+  const addItem = (key: keyof NGOOptions) => {
+    const val = inputValues[key]?.trim();
+    if (!val) return;
+    setOptions(prev => ({ ...prev, [key]: [...(prev[key] as string[]), val] }));
+    setInputValues(prev => ({ ...prev, [key]: '' }));
   };
 
+  const removeItem = (key: keyof NGOOptions, index: number) => {
+    setOptions(prev => ({ ...prev, [key]: (prev[key] as string[]).filter((_, i) => i !== index) }));
+  };
+
+  const sections = [
+    { key: 'regions', label: '區域' },
+    { key: 'workers', label: '社工姓名' },
+    { key: 'clients', label: '姓名' },
+    { key: 'items', label: '補助項目' },
+    { key: 'sources', label: '經費來源' },
+    { key: 'remarks', label: '備註常用選項' },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">總核銷金額</p>
-          <p className="text-3xl font-bold text-slate-900 mt-2">${totalAmount.toLocaleString()}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">累計服務個案</p>
-          <p className="text-3xl font-bold text-slate-900 mt-2">{stats.clients}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <p className="text-slate-500 text-sm font-medium">經費來源數量</p>
-          <p className="text-3xl font-bold text-slate-900 mt-2">{stats.sources}</p>
-        </div>
+    <div className="space-y-6 pb-12">
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h3 className="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
+          <CloudUpload size={20} className="text-indigo-500" /> Google 試算表連動設定
+        </h3>
+        <input 
+          type="text"
+          placeholder="貼上 Google Apps Script URL..."
+          className="w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
+          value={options.syncUrl || ''}
+          onChange={(e) => setOptions(prev => ({ ...prev, syncUrl: e.target.value }))}
+        />
+        <p className="mt-3 text-[10px] text-slate-400 leading-relaxed italic">提示：將 GAS ID 貼上後，系統會自動在背景與您的雲端表單進行對接。</p>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Sparkles className="text-indigo-500" size={20} />
-            AI 財務分析報告
-          </h2>
-          <button 
-            onClick={generateAIInsight}
-            disabled={loadingInsight || records.length === 0}
-            className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-full font-medium hover:bg-indigo-100 transition-colors disabled:opacity-50"
-          >
-            {loadingInsight ? '分析中...' : '重新生成分析'}
-          </button>
-        </div>
-        
-        {loadingInsight ? (
-          <div className="flex flex-col items-center py-8">
-            <Loader2 className="animate-spin text-indigo-500 mb-2" />
-            <p className="text-sm text-slate-500">Gemini 正在分析您的數據...</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {sections.map(section => (
+          <div key={section.key} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full">
+            <h3 className="font-bold text-slate-900 mb-4">{section.label}</h3>
+            <div className="flex gap-2 mb-4">
+              <input 
+                type="text"
+                placeholder="新增..."
+                className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                value={inputValues[section.key] || ''}
+                onChange={(e) => setInputValues({...inputValues, [section.key]: e.target.value})}
+                onKeyDown={(e) => e.key === 'Enter' && addItem(section.key as keyof NGOOptions)}
+              />
+              <button onClick={() => addItem(section.key as keyof NGOOptions)} className="bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700">
+                <Plus size={18}/>
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto py-1">
+              {(options[section.key as keyof NGOOptions] as string[]).map((item, idx) => (
+                <span key={idx} className="bg-slate-50 text-slate-700 px-3 py-1 rounded-xl text-[11px] font-medium flex items-center gap-2 group border">
+                  {item}
+                  <button onClick={() => removeItem(section.key as keyof NGOOptions, idx)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
+                    <X size={14}/>
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
-        ) : insight ? (
-          <div className="bg-slate-50 p-4 rounded-xl text-slate-700 leading-relaxed whitespace-pre-wrap">
-            {insight}
-          </div>
-        ) : (
-          <div className="text-center py-8 text-slate-400 text-sm italic">
-            點擊「重新生成分析」以獲取當前紀錄的 AI 財務洞察。
-          </div>
-        )}
+        ))}
       </div>
     </div>
   );
 };
 
-const ImportTab = ({ onImport }: { onImport: (newRecords: SubsidyRecord[]) => void }) => {
+// --- 子組件：單筆補登 ---
+const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, options: NGOOptions }) => {
+  const [formData, setFormData] = useState({ 
+    region: options.regions[0] || '',
+    worker: options.workers[0] || '',
+    clientName: options.clients[0] || '', 
+    item: options.items[0] || '', 
+    amount: 0, 
+    source: options.sources[0] || '', 
+    remarks: '' 
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (formData.amount <= 0) return alert("金額必須大於 0");
+    onAdd({ 
+      id: generateId(), 
+      submitTime: new Date().toLocaleString(), 
+      month: new Date().toISOString().slice(0, 7), 
+      ...formData 
+    });
+    alert("儲存成功！資料已暫存在本地，請記得到紀錄查詢頁面同步至雲端。");
+  };
+
+  return (
+    <div className="bg-white p-8 rounded-[2rem] shadow-sm border max-w-2xl mx-auto animate-in zoom-in-95 duration-300">
+      <h2 className="text-2xl font-black mb-8 flex items-center gap-3 text-slate-900">
+        <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600"><PlusCircle size={24} /></div>
+        單筆核銷補登
+      </h2>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">區域</label>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.region} onChange={e => setFormData({...formData, region: e.target.value})}>
+              {options.regions.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">社工姓名</label>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.worker} onChange={e => setFormData({...formData, worker: e.target.value})}>
+              {options.workers.map(w => <option key={w} value={w}>{w}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">個案姓名</label>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.clientName} onChange={e => setFormData({...formData, clientName: e.target.value})}>
+              {options.clients.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">補助項目</label>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.item} onChange={e => setFormData({...formData, item: e.target.value})}>
+              {options.items.map(i => <option key={i} value={i}>{i}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">金額 ($)</label>
+            <input type="number" className="w-full p-4 border rounded-2xl text-sm bg-slate-50 font-bold" value={formData.amount} onChange={e => setFormData({...formData, amount: Number(e.target.value)})} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">經費來源</label>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.source} onChange={e => setFormData({...formData, source: e.target.value})}>
+              {options.sources.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-500 ml-1">備註</label>
+          <div className="flex flex-col gap-3">
+            <select className="w-full p-3 border rounded-xl text-xs bg-slate-50" value="" onChange={e => e.target.value && setFormData({...formData, remarks: e.target.value})}>
+              <option value="">從常用備註選擇...</option>
+              {options.remarks.map(rem => <option key={rem} value={rem}>{rem}</option>)}
+            </select>
+            <textarea placeholder="或在此手動輸入詳細備註..." className="w-full p-4 border rounded-2xl text-sm min-h-24" value={formData.remarks} onChange={e => setFormData({...formData, remarks: e.target.value})} />
+          </div>
+        </div>
+        <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-indigo-700 active:scale-95 transition-all">儲存核銷</button>
+      </form>
+    </div>
+  );
+};
+
+// --- 子組件：批次匯入 ---
+const ImportTab = ({ onImport, options }: { onImport: (newRecords: SubsidyRecord[]) => void, options: NGOOptions }) => {
   const [file, setFile] = useState<File | null>(null);
-  const [region, setRegion] = useState(NGO_CONFIG.regions[0]);
-  const [worker, setWorker] = useState(NGO_CONFIG.workers[0]);
-  const [month, setMonth] = useState('2025-01');
+  const [region, setRegion] = useState(options.regions[0] || '');
+  const [worker, setWorker] = useState(options.workers[0] || '');
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<SubsidyRecord[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files[0]) setFile(e.target.files[0]);
   };
 
   const processFile = async () => {
@@ -146,126 +240,41 @@ const ImportTab = ({ onImport }: { onImport: (newRecords: SubsidyRecord[]) => vo
     setLoading(true);
     try {
       const results = await parseExcelFile(file, { region, worker, month });
-      setPreview(results);
+      setPreview(results.map(r => ({ ...r, id: generateId() })));
     } catch (err: any) {
-      alert("解析檔案失敗: " + err.message);
+      alert("解析失敗: " + err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  const confirmImport = () => {
-    onImport(preview);
-    setPreview([]);
-    setFile(null);
-    alert("匯入成功！");
-  };
-
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="p-6 border-b border-slate-100">
-        <h2 className="text-xl font-bold">會計撥款名冊匯入</h2>
-        <p className="text-slate-500 text-sm">請上傳 Excel 檔案（.xls, .xlsx）進行自動解析。</p>
+    <div className="bg-white rounded-[2rem] shadow-sm border overflow-hidden max-w-4xl mx-auto">
+      <div className="p-8 bg-slate-50/50 border-b">
+        <h2 className="text-xl font-bold flex items-center gap-2">批次 Excel 匯入</h2>
       </div>
-
-      <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">所屬區域</label>
-          <select 
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-          >
-            {NGO_CONFIG.regions.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">操作人員</label>
-          <select 
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
-            value={worker}
-            onChange={(e) => setWorker(e.target.value)}
-          >
-            {NGO_CONFIG.workers.map(w => <option key={w} value={w}>{w}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">撥款月份</label>
-          <input 
-            type="month" 
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-          />
-        </div>
+      <div className="p-8 grid grid-cols-3 gap-4">
+        <select className="p-4 border rounded-2xl text-sm" value={region} onChange={e => setRegion(e.target.value)}>{options.regions.map(r => <option key={r} value={r}>{r}</option>)}</select>
+        <select className="p-4 border rounded-2xl text-sm" value={worker} onChange={e => setWorker(e.target.value)}>{options.workers.map(w => <option key={w} value={w}>{w}</option>)}</select>
+        <input type="month" className="p-4 border rounded-2xl text-sm" value={month} onChange={e => setMonth(e.target.value)} />
       </div>
-
-      <div className="px-6 pb-6">
-        <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center bg-slate-50 hover:bg-slate-100 transition-all">
-          <input 
-            type="file" 
-            id="excel-upload" 
-            className="hidden" 
-            accept=".xlsx, .xls" 
-            onChange={handleFileChange}
-          />
-          <label htmlFor="excel-upload" className="cursor-pointer flex flex-col items-center">
-            <FileUp size={48} className="text-slate-400 mb-4" />
-            <p className="text-slate-700 font-medium">{file ? file.name : '點擊或拖曳選擇 Excel 檔案'}</p>
-            <p className="text-slate-400 text-sm mt-1">支援標準核銷格式（含 .xls）</p>
+      <div className="p-8">
+        <div className="border-2 border-dashed border-slate-200 p-12 text-center rounded-3xl bg-slate-50">
+          <input type="file" id="excel" className="hidden" onChange={handleFileChange} accept=".xlsx,.xls"/>
+          <label htmlFor="excel" className="cursor-pointer">
+            <p className="font-bold text-slate-700">{file ? file.name : "點擊上傳撥款彙總表"}</p>
           </label>
         </div>
-
-        {file && !preview.length && (
-          <button 
-            onClick={processFile}
-            disabled={loading}
-            className="mt-6 w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-          >
-            {loading ? <Loader2 className="animate-spin" /> : <Sparkles size={18} />}
-            {loading ? '分析 Excel 結構中...' : '開始解析檔案'}
-          </button>
-        )}
+        {file && !preview.length && <button onClick={processFile} className="w-full mt-4 bg-indigo-600 text-white p-4 rounded-2xl font-bold">{loading ? "正在解析..." : "確認解析檔案"}</button>}
       </div>
-
       {preview.length > 0 && (
-        <div className="p-6 bg-slate-50 border-t border-slate-100">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-lg flex items-center gap-2">
-              <CheckCircle2 size={20} className="text-emerald-500" />
-              解析結果（共 {preview.length} 筆）
-            </h3>
-            <button 
-              onClick={confirmImport}
-              className="bg-emerald-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200"
-            >
-              確認並儲存至資料庫
-            </button>
+        <div className="p-8 bg-slate-900">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-white font-bold">預覽解析結果 ({preview.length} 筆)</h3>
+            <button onClick={() => { onImport(preview); setPreview([]); setFile(null); alert("匯入成功！"); }} className="bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold">確認匯入本地</button>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-500 font-medium">
-                <tr>
-                  <th className="px-4 py-3 text-left">個案</th>
-                  <th className="px-4 py-3 text-left">項目</th>
-                  <th className="px-4 py-3 text-left">經費來源</th>
-                  <th className="px-4 py-3 text-right">金額</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {preview.slice(0, 10).map((r, i) => (
-                  <tr key={i}>
-                    <td className="px-4 py-3">{r.clientName}</td>
-                    <td className="px-4 py-3 text-slate-500">{r.item}</td>
-                    <td className="px-4 py-3 text-indigo-600 font-medium">{r.source}</td>
-                    <td className="px-4 py-3 text-right font-bold">${r.amount.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {preview.length > 10 && (
-              <p className="p-3 text-center text-xs text-slate-400">... 以及另外 {preview.length - 10} 筆資料</p>
-            )}
+          <div className="max-h-60 overflow-y-auto bg-slate-800 p-4 rounded-xl text-xs text-slate-400">
+            {preview.map((p, i) => <div key={i} className="py-1 border-b border-slate-700">{p.clientName} - {p.item} (${p.amount})</div>)}
           </div>
         </div>
       )}
@@ -273,150 +282,45 @@ const ImportTab = ({ onImport }: { onImport: (newRecords: SubsidyRecord[]) => vo
   );
 };
 
-const ManualEntry = ({ onAdd }: { onAdd: (record: SubsidyRecord) => void }) => {
-  const [formData, setFormData] = useState({
-    clientName: NGO_CONFIG.clients[0],
-    item: NGO_CONFIG.items[0],
-    amount: 0,
-    source: NGO_CONFIG.sources[0],
-    remarks: ''
-  });
+// --- 子組件：紀錄查詢 ---
+const RecordsTable = ({ records, onDelete, onClearAll, syncUrl }: { records: SubsidyRecord[], onDelete: (id: string) => void, onClearAll: () => void, syncUrl?: string }) => {
+  const [syncing, setSyncing] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (formData.amount <= 0) return alert("請輸入有效的金額");
-    
-    onAdd({
-      id: Math.random().toString(36).substr(2, 9),
-      submitTime: new Date().toLocaleString(),
-      region: '手動補登',
-      worker: '當前使用者',
-      month: new Date().toISOString().slice(0, 7),
-      ...formData
-    });
-
-    setFormData({
-      clientName: NGO_CONFIG.clients[0],
-      item: NGO_CONFIG.items[0],
-      amount: 0,
-      source: NGO_CONFIG.sources[0],
-      remarks: ''
-    });
-
-    alert("資料已成功補登！");
+  const handleSync = async () => {
+    if (!syncUrl) return alert("請先至系統設定填寫 Google Apps Script 網址");
+    setSyncing(true);
+    const success = await syncToGoogleSheets(syncUrl, records);
+    setSyncing(false);
+    alert(success ? "雲端同步成功！" : "同步失敗，請檢查網路或網址。");
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 max-w-2xl">
-      <div className="p-6 border-b border-slate-100">
-        <h2 className="text-xl font-bold">單筆手動補登</h2>
-        <p className="text-slate-500 text-sm">用於個別資料修正或延遲入帳的補充。</p>
-      </div>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">個案姓名</label>
-            <select 
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.clientName}
-              onChange={(e) => setFormData({...formData, clientName: e.target.value})}
-            >
-              {NGO_CONFIG.clients.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">補助項目</label>
-            <select 
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.item}
-              onChange={(e) => setFormData({...formData, item: e.target.value})}
-            >
-              {NGO_CONFIG.items.map(i => <option key={i} value={i}>{i}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">金額 ($)</label>
-            <input 
-              type="number"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.amount}
-              onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">經費來源</label>
-            <select 
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.source}
-              onChange={(e) => setFormData({...formData, source: e.target.value})}
-            >
-              {NGO_CONFIG.sources.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">備註</label>
-          <textarea 
-            rows={3}
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-            placeholder="補充說明..."
-            value={formData.remarks}
-            onChange={(e) => setFormData({...formData, remarks: e.target.value})}
-          />
-        </div>
-        <button 
-          type="submit"
-          className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 mt-4"
-        >
-          儲存紀錄
-        </button>
-      </form>
-    </div>
-  );
-};
-
-const RecordsTable = ({ records }: { records: SubsidyRecord[] }) => {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold">歷史核銷紀錄</h2>
-          <p className="text-slate-500 text-sm">所有已驗證並存入資料庫的補助紀錄。</p>
+    <div className="bg-white rounded-[2rem] shadow-sm border overflow-hidden">
+      <div className="p-8 flex justify-between items-center border-b">
+        <h2 className="text-2xl font-black">本地核銷紀錄 ({records.length})</h2>
+        <div className="flex gap-2">
+          <button onClick={handleSync} disabled={syncing || records.length === 0} className="bg-emerald-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2">
+            {syncing ? <Loader2 size={16} className="animate-spin"/> : <CloudUpload size={16}/>}
+            同步至雲端
+          </button>
+          <button onClick={() => window.confirm("確定清空本地紀錄？") && onClearAll()} className="p-2 text-red-500"><RotateCcw size={20}/></button>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-500 font-medium">
-            <tr>
-              <th className="px-6 py-4 text-left">提交時間</th>
-              <th className="px-6 py-4 text-left">個案姓名</th>
-              <th className="px-6 py-4 text-left">操作社工</th>
-              <th className="px-6 py-4 text-left">補助項目</th>
-              <th className="px-6 py-4 text-left">經費來源</th>
-              <th className="px-6 py-4 text-right">金額</th>
-            </tr>
+          <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold">
+            <tr><th className="p-6 text-left">姓名</th><th className="p-6 text-left">項目</th><th className="p-6 text-left">經費來源</th><th className="p-6 text-right">金額</th><th className="p-6 text-center">操作</th></tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
-            {records.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">目前尚無資料。</td>
+          <tbody className="divide-y">
+            {records.map(r => (
+              <tr key={r.id} className="hover:bg-slate-50 group">
+                <td className="p-6 font-bold">{r.clientName}</td>
+                <td className="p-6">{r.item}</td>
+                <td className="p-6"><span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-bold">{r.source}</span></td>
+                <td className="p-6 text-right font-black text-indigo-600">${r.amount.toLocaleString()}</td>
+                <td className="p-6 text-center"><button onClick={() => onDelete(r.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16}/></button></td>
               </tr>
-            ) : (
-              records.map((r) => (
-                <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-xs font-mono text-slate-400">{r.submitTime}</td>
-                  <td className="px-6 py-4 font-semibold text-slate-900">{r.clientName}</td>
-                  <td className="px-6 py-4 text-slate-500">{r.worker}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-slate-100 rounded-md text-[10px] uppercase font-bold text-slate-600">{r.item}</span>
-                  </td>
-                  <td className="px-6 py-4 text-indigo-600 font-medium">{r.source}</td>
-                  <td className="px-6 py-4 text-right font-bold text-slate-900">${r.amount.toLocaleString()}</td>
-                </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
       </div>
@@ -424,72 +328,112 @@ const RecordsTable = ({ records }: { records: SubsidyRecord[] }) => {
   );
 };
 
+// --- 子組件：儀表板 ---
+const Dashboard = ({ records }: { records: SubsidyRecord[] }) => {
+  const totalAmount = useMemo(() => records.reduce((sum, r) => sum + r.amount, 0), [records]);
+  const [insight, setInsight] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const generateAI = async () => {
+    if (records.length === 0) return;
+    setLoading(true);
+    setInsight(await getFinancialInsights(records));
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in">
+      <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 text-indigo-50"><CloudUpload size={80}/></div>
+        <p className="text-slate-400 text-xs font-black uppercase tracking-widest relative z-10">核銷累計總額</p>
+        <p className="text-5xl font-black text-indigo-600 mt-4 relative z-10">${totalAmount.toLocaleString()}</p>
+      </div>
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-black flex items-center gap-2"><Sparkles className="text-indigo-500" size={22}/> AI 財務洞察分析</h2>
+          <button onClick={generateAI} disabled={loading || records.length === 0} className="bg-indigo-600 text-white px-6 py-2 rounded-2xl text-xs font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">
+            {loading ? '分析中...' : '生成趨勢報告'}
+          </button>
+        </div>
+        {insight ? (
+          <div className="bg-slate-50 p-6 rounded-2xl relative border">
+            <button onClick={() => { navigator.clipboard.writeText(insight); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="absolute top-4 right-4 p-2 bg-white rounded-lg shadow-sm">
+              {copied ? <Check size={16} className="text-emerald-500"/> : <Copy size={16} className="text-slate-400"/>}
+            </button>
+            <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed font-medium">{insight}</div>
+          </div>
+        ) : (
+          <div className="text-center py-20 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-100">
+            <p className="text-slate-400 text-sm font-medium">目前尚無分析資料，點擊按鈕啟動 AI 生成報告。</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- 子組件：登入介面 ---
 const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
   const [pass, setPass] = useState('');
   const [error, setError] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (pass === '2025ngo') {
       onLogin();
     } else {
       setError(true);
-      setTimeout(() => setError(false), 2000);
+      setPass('');
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-slate-900">
-      <div className="bg-white w-full max-w-md p-8 rounded-3xl shadow-2xl">
-        <div className="text-center mb-8">
-          <div className="inline-block bg-indigo-600 p-4 rounded-3xl text-white mb-4">
-            <CheckCircle2 size={40} />
-          </div>
-          <h1 className="text-2xl font-bold">NGO 補助核銷系統</h1>
-          <p className="text-slate-500">安全存取您的核銷管理平台</p>
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden font-['Inter']">
+      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-indigo-600/20 rounded-full blur-[120px]"></div>
+      <div className="bg-white w-full max-w-md p-12 rounded-[3.5rem] shadow-2xl text-center relative z-10 border border-white/20 animate-in fade-in zoom-in duration-500">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-3xl text-white mb-10 shadow-2xl">
+          <ShieldCheck size={40} />
         </div>
-
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">系統通行碼</label>
-            <input 
-              type="password"
-              placeholder="請輸入密碼"
-              className={`w-full px-4 py-4 rounded-2xl bg-slate-50 border focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-center text-lg tracking-[1em] ${
-                error ? 'border-red-500' : 'border-slate-200'
-              }`}
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-            />
-            <p className="mt-4 text-center text-xs text-slate-400">示範用密碼：2025ngo</p>
-          </div>
-          <button 
-            type="submit"
-            className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all shadow-xl"
-          >
-            登入系統
-          </button>
+        <h1 className="text-3xl font-black text-slate-900 mb-2 uppercase tracking-tight">NGO Portal</h1>
+        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-12">核銷系統存取控制</p>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <input 
+            type="password" 
+            placeholder="請輸入通行碼" 
+            className={`w-full px-6 py-5 rounded-2xl bg-slate-50 border ${error ? 'border-red-500' : 'border-slate-100 focus:border-indigo-500'} text-center text-2xl font-black tracking-widest outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all`} 
+            value={pass} 
+            onChange={e => { setPass(e.target.value); setError(false); }}
+            autoFocus
+          />
+          {error && <p className="text-red-500 text-[10px] font-bold mt-2 animate-pulse">通行碼錯誤，請重新輸入</p>}
+          <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-lg hover:shadow-2xl active:scale-95 transition-all">驗證身分</button>
         </form>
-        
-        <div className="mt-8 flex items-center justify-center gap-4 text-xs font-medium text-slate-400">
-          <span className="flex items-center gap-1"><Info size={14} /> 加密連線</span>
-          <span className="flex items-center gap-1"><AlertTriangle size={14} /> 僅限內部使用</span>
+        <div className="mt-12 pt-8 border-t border-slate-50">
+          <p className="text-[10px] text-slate-300 font-medium">系統測試通行碼：2025ngo</p>
         </div>
       </div>
     </div>
   );
 };
 
-// --- Main App Logic ---
-
+// --- App 核心入口 ---
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [records, setRecords] = useState<SubsidyRecord[]>(MOCK_RECORDS);
   const [activeTab, setActiveTab] = useState<AppTab>(AppTab.DASHBOARD);
+  const [records, setRecords] = useState<SubsidyRecord[]>(() => {
+    const saved = localStorage.getItem('ngo_records');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [options, setOptions] = useState<NGOOptions>(() => {
+    const saved = localStorage.getItem('ngo_settings');
+    return saved ? JSON.parse(saved) : NGO_CONFIG;
+  });
 
+  useEffect(() => localStorage.setItem('ngo_records', JSON.stringify(records)), [records]);
+  useEffect(() => localStorage.setItem('ngo_settings', JSON.stringify(options)), [options]);
   useEffect(() => {
-    const saved = localStorage.getItem('ngo_auth');
-    if (saved === 'true') setIsLoggedIn(true);
+    if (localStorage.getItem('ngo_auth') === 'true') setIsLoggedIn(true);
   }, []);
 
   const handleLogin = () => {
@@ -497,68 +441,40 @@ function App() {
     localStorage.setItem('ngo_auth', 'true');
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    localStorage.removeItem('ngo_auth');
-  };
+  if (!isLoggedIn) return <LoginScreen onLogin={handleLogin} />;
 
-  const addRecords = (newRecords: SubsidyRecord[]) => {
-    setRecords(prev => [...newRecords, ...prev]);
-  };
-
-  if (!isLoggedIn) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
+  const NavWatcher = ({ tab }: { tab: AppTab }) => { useEffect(() => setActiveTab(tab), [tab]); return null; };
 
   return (
     <HashRouter>
-      <div className="flex min-h-screen bg-slate-50">
-        <Sidebar activeTab={activeTab} onLogout={handleLogout} />
-        
-        <main className="flex-1 ml-64 p-8">
-          <header className="mb-8 flex justify-between items-center">
+      <div className="flex min-h-screen bg-[#F8FAFC]">
+        <Sidebar activeTab={activeTab} onLogout={() => { setIsLoggedIn(false); localStorage.removeItem('ngo_auth'); }} />
+        <main className="flex-1 ml-64 p-10">
+          <header className="mb-10 flex justify-between items-end border-b border-slate-200 pb-8">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 capitalize">
-                {activeTab === 'dashboard' ? '儀表板' : 
-                 activeTab === 'import' ? '批次匯入' : 
-                 activeTab === 'manual' ? '單筆補登' : '紀錄查詢'}
-              </h1>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-xs font-medium text-slate-500 uppercase tracking-widest">連線狀態：正常</span>
-              </div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Workspace</div>
+              <h1 className="text-4xl font-black text-slate-900 uppercase tracking-tighter">{activeTab}</h1>
             </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-sm font-bold text-slate-900">管理者模式</p>
-                <p className="text-xs text-slate-400">上次登入: 今天 09:15</p>
-              </div>
-              <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold border-2 border-white shadow-sm">
-                NGO
-              </div>
+            <div className={`px-5 py-2 rounded-2xl text-[10px] font-black tracking-widest border flex items-center gap-2 transition-all ${options.syncUrl ? 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+              {options.syncUrl ? <CloudCheck size={14}/> : <CloudOff size={14}/>}
+              {options.syncUrl ? 'CLOUD READY' : 'LOCAL MODE'}
             </div>
           </header>
-
-          <Routes>
-            <Route path="/dashboard" element={<><NavWatcher setActive={setActiveTab} tab={AppTab.DASHBOARD} /><Dashboard records={records} /></>} />
-            <Route path="/import" element={<><NavWatcher setActive={setActiveTab} tab={AppTab.IMPORT} /><ImportTab onImport={addRecords} /></>} />
-            <Route path="/manual" element={<><NavWatcher setActive={setActiveTab} tab={AppTab.MANUAL} /><ManualEntry onAdd={(r) => addRecords([r])} /></>} />
-            <Route path="/records" element={<><NavWatcher setActive={setActiveTab} tab={AppTab.RECORDS} /><RecordsTable records={records} /></>} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+          
+          <div className="max-w-[1200px]">
+            <Routes>
+              <Route path="/dashboard" element={<><NavWatcher tab={AppTab.DASHBOARD}/><Dashboard records={records}/></>} />
+              <Route path="/import" element={<><NavWatcher tab={AppTab.IMPORT}/><ImportTab onImport={r => setRecords(p => [...r, ...p])} options={options}/></>} />
+              <Route path="/manual" element={<><NavWatcher tab={AppTab.MANUAL}/><ManualEntry onAdd={r => setRecords(p => [r, ...p])} options={options}/></>} />
+              <Route path="/records" element={<><NavWatcher tab={AppTab.RECORDS}/><RecordsTable records={records} onDelete={id => setRecords(p => p.filter(x => x.id !== id))} onClearAll={() => setRecords([])} syncUrl={options.syncUrl}/></>} />
+              <Route path="/settings" element={<><NavWatcher tab={AppTab.SETTINGS}/><SettingsPage options={options} setOptions={setOptions}/></>} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </div>
         </main>
       </div>
     </HashRouter>
   );
 }
-
-// Utility to update active tab based on route
-const NavWatcher = ({ setActive, tab }: { setActive: (t: AppTab) => void, tab: AppTab }) => {
-  useEffect(() => {
-    setActive(tab);
-  }, [setActive, tab]);
-  return null;
-};
 
 export default App;
