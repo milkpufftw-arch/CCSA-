@@ -11,7 +11,8 @@ export const parseExcelFile = async (
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
+        // 使用 type: 'array' 搭配 ArrayBuffer 是處理繁體中文字元最穩定的方式
+        const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames.find(n => n.includes('Summary') || n.includes('總表') || n.includes('彙總')) || workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
@@ -69,7 +70,7 @@ export const parseExcelFile = async (
       }
     };
     reader.onerror = (err) => reject(err);
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   });
 };
 
@@ -82,7 +83,7 @@ export const parseSettingsExcel = async (file: File): Promise<Partial<NGOOptions
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
+        const workbook = XLSX.read(data, { type: 'array' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         
@@ -116,7 +117,6 @@ export const parseSettingsExcel = async (file: File): Promise<Partial<NGOOptions
               .filter(val => val !== undefined && val !== null && String(val).trim() !== '')
               .map(val => String(val).trim());
             
-            // 使用 Set 去重
             result[key as keyof NGOOptions] = Array.from(new Set(values)) as any;
           }
         });
@@ -127,6 +127,6 @@ export const parseSettingsExcel = async (file: File): Promise<Partial<NGOOptions
       }
     };
     reader.onerror = (err) => reject(err);
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   });
 };
