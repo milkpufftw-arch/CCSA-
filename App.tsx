@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, FileUp, ListChecks, PlusCircle, LogOut, 
   CheckCircle2, Loader2, Sparkles, Trash2, Eye, EyeOff, RotateCcw, 
   Settings as SettingsIcon, Download, Plus, X, CloudUpload, ExternalLink, CloudCheck, CloudOff, ListOrdered,
-  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock, FileSpreadsheet, ListPlus
+  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock, FileSpreadsheet, ListPlus, Search, Edit2, Save
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { NGO_CONFIG, MOCK_RECORDS } from './constants';
@@ -67,6 +67,7 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
   const [showBulkPaste, setShowBulkPaste] = useState<string | null>(null);
   const [bulkText, setBulkText] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [editingItem, setEditingItem] = useState<{ key: keyof NGOOptions, index: number, value: string } | null>(null);
 
   const addItem = (key: keyof NGOOptions) => {
     const val = inputValues[key]?.trim();
@@ -84,7 +85,27 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
   };
 
   const removeItem = (key: keyof NGOOptions, index: number) => {
-    setOptions(prev => ({ ...prev, [key]: (prev[key] as string[]).filter((_, i) => i !== index) }));
+    if (window.confirm("確定要刪除此選項嗎？")) {
+      setOptions(prev => ({ ...prev, [key]: (prev[key] as string[]).filter((_, i) => i !== index) }));
+    }
+  };
+
+  const startEdit = (key: keyof NGOOptions, index: number, value: string) => {
+    setEditingItem({ key, index, value });
+  };
+
+  const saveEdit = () => {
+    if (!editingItem) return;
+    const { key, index, value } = editingItem;
+    const trimmedVal = value.trim();
+    if (!trimmedVal) return setEditingItem(null);
+
+    setOptions(prev => {
+      const nextArr = [...(prev[key] as string[])];
+      nextArr[index] = trimmedVal;
+      return { ...prev, [key]: nextArr };
+    });
+    setEditingItem(null);
   };
 
   const handleSettingsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,7 +142,6 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
 
   return (
     <div className="space-y-6 pb-12">
-      {/* 頂部工具列 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
@@ -140,7 +160,7 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
           <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
             <FileSpreadsheet size={20} /> 快速同步對照表
           </h3>
-          <p className="text-indigo-100 text-xs mb-4">如果您已經有 Excel 設定表，可直接匯入更新所有名單。</p>
+          <p className="text-indigo-100 text-xs mb-4">匯入 Excel 可自動提取「歸屬區域」、「個案姓名」、「經費來源」等資訊。</p>
           <input type="file" id="settingsExcel" className="hidden" accept=".xlsx,.xls" onChange={handleSettingsExcel} />
           <label htmlFor="settingsExcel" className="inline-flex items-center gap-2 bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold text-sm cursor-pointer hover:bg-indigo-50 transition-all">
             {isImporting ? <Loader2 size={16} className="animate-spin" /> : <ListPlus size={16} />}
@@ -151,32 +171,35 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {sections.map(section => (
-          <div key={section.key} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative overflow-hidden">
+          <div key={section.key} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-[400px] relative overflow-hidden group">
             <div className="flex justify-between items-start mb-4">
-              <h3 className="font-bold text-slate-900">{section.label}</h3>
+              <div>
+                <h3 className="font-bold text-slate-900">{section.label}</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Click to edit item</p>
+              </div>
               <button 
                 onClick={() => setShowBulkPaste(section.key)}
-                className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-md hover:bg-slate-200 transition-colors flex items-center gap-1 font-bold"
+                className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-md hover:bg-indigo-600 hover:text-white transition-all flex items-center gap-1 font-bold shadow-sm"
               >
                 <ClipboardCheck size={12} /> 批量貼上
               </button>
             </div>
 
             {showBulkPaste === section.key ? (
-              <div className="absolute inset-0 z-10 bg-white p-6 flex flex-col animate-in slide-in-from-bottom-5">
+              <div className="absolute inset-0 z-30 bg-white p-6 flex flex-col animate-in slide-in-from-bottom-5">
                 <div className="flex justify-between mb-2">
                   <span className="text-xs font-bold text-slate-400 uppercase">貼上清單 (換行分隔)</span>
                   <button onClick={() => setShowBulkPaste(null)} className="text-slate-400 hover:text-slate-600"><X size={16}/></button>
                 </div>
                 <textarea 
-                  className="flex-1 border rounded-xl p-3 text-sm bg-slate-50 mb-3 outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder={`例如：\n姓名A\n姓名B\n姓名C`}
+                  className="flex-1 border rounded-xl p-3 text-sm bg-slate-50 mb-3 outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  placeholder={`例如：\n台北中心\n高雄中心`}
                   value={bulkText}
                   onChange={(e) => setBulkText(e.target.value)}
                 />
                 <button 
                   onClick={() => addBulkItems(section.key as keyof NGOOptions)}
-                  className="bg-indigo-600 text-white py-2 rounded-xl text-sm font-bold shadow-md"
+                  className="bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold shadow-lg"
                 >
                   確認加入
                 </button>
@@ -187,24 +210,66 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
                   <input 
                     type="text"
                     placeholder="新增..."
-                    className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
                     value={inputValues[section.key] || ''}
                     onChange={(e) => setInputValues({...inputValues, [section.key]: e.target.value})}
                     onKeyDown={(e) => e.key === 'Enter' && addItem(section.key as keyof NGOOptions)}
                   />
-                  <button onClick={() => addItem(section.key as keyof NGOOptions)} className="bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700">
+                  <button onClick={() => addItem(section.key as keyof NGOOptions)} className="bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700 shadow-md">
                     <Plus size={18}/>
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto py-1">
+                
+                <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-1">
                   {(options[section.key as keyof NGOOptions] as string[]).map((item, idx) => (
-                    <span key={idx} className="bg-slate-50 text-slate-700 px-3 py-1 rounded-xl text-[11px] font-medium flex items-center gap-2 group border">
-                      {item}
-                      <button onClick={() => removeItem(section.key as keyof NGOOptions, idx)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
-                        <X size={14}/>
-                      </button>
-                    </span>
+                    <div key={idx} className="group/item flex items-center justify-between p-2 rounded-xl border border-transparent hover:border-slate-100 hover:bg-slate-50 transition-all">
+                      {editingItem && editingItem.key === section.key && editingItem.index === idx ? (
+                        <div className="flex-1 flex gap-2">
+                          <input 
+                            type="text"
+                            autoFocus
+                            className="flex-1 bg-white border rounded-lg px-2 py-1 text-sm outline-none ring-2 ring-indigo-500 font-bold"
+                            value={editingItem.value}
+                            onChange={(e) => setEditingItem({...editingItem, value: e.target.value})}
+                            onBlur={saveEdit}
+                            onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
+                          />
+                          <button onClick={saveEdit} className="text-emerald-500"><CheckCircle2 size={18}/></button>
+                        </div>
+                      ) : (
+                        <>
+                          <span 
+                            onClick={() => startEdit(section.key as keyof NGOOptions, idx, item)}
+                            className="flex-1 text-sm font-medium text-slate-700 cursor-text py-1 px-1 rounded hover:bg-white"
+                          >
+                            {item}
+                          </span>
+                          <div className="flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                            <button 
+                              onClick={() => startEdit(section.key as keyof NGOOptions, idx, item)}
+                              className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="修改"
+                            >
+                              <Edit2 size={14}/>
+                            </button>
+                            <button 
+                              onClick={() => removeItem(section.key as keyof NGOOptions, idx)} 
+                              className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              title="刪除"
+                            >
+                              <Trash2 size={14}/>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   ))}
+                  {(options[section.key as keyof NGOOptions] as string[]).length === 0 && (
+                    <div className="h-32 flex flex-col items-center justify-center text-slate-300 gap-2 border-2 border-dashed rounded-2xl">
+                      <AlertCircle size={20}/>
+                      <span className="text-[10px] font-bold">尚無任何選項</span>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -220,15 +285,42 @@ const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, op
   const [formData, setFormData] = useState({ 
     region: options.regions[0] || '',
     worker: options.workers[0] || '',
-    clientName: options.clients[0] || '', 
+    clientName: '', 
     item: options.items[0] || '', 
     amount: 0, 
     source: options.sources[0] || '', 
     remarks: '' 
   });
 
+  const [clientSearch, setClientSearch] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredClients = useMemo(() => {
+    if (!clientSearch) return options.clients.slice(0, 50);
+    const search = clientSearch.toLowerCase();
+    return options.clients.filter(c => c.toLowerCase().includes(search));
+  }, [options.clients, clientSearch]);
+
+  const selectClient = (name: string) => {
+    setFormData({ ...formData, clientName: name });
+    setClientSearch(name);
+    setShowDropdown(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.clientName) return alert("請選擇或輸入個案姓名");
     if (formData.amount <= 0) return alert("金額必須大於 0");
     onAdd({ 
       id: generateId(), 
@@ -236,7 +328,9 @@ const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, op
       month: new Date().toISOString().slice(0, 7), 
       ...formData 
     });
-    alert("儲存成功！資料已暫存在本地，請記得到紀錄查詢頁面同步至雲端。");
+    alert("儲存成功！資料已暫存在本地。");
+    setFormData(prev => ({ ...prev, clientName: '', amount: 0, remarks: '' }));
+    setClientSearch('');
   };
 
   return (
@@ -249,54 +343,90 @@ const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, op
         <div className="grid grid-cols-2 gap-6">
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-500 ml-1">區域</label>
-            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.region} onChange={e => setFormData({...formData, region: e.target.value})}>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.region} onChange={e => setFormData({...formData, region: e.target.value})}>
               {options.regions.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-500 ml-1">社工姓名</label>
-            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.worker} onChange={e => setFormData({...formData, worker: e.target.value})}>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.worker} onChange={e => setFormData({...formData, worker: e.target.value})}>
               {options.workers.map(w => <option key={w} value={w}>{w}</option>)}
             </select>
           </div>
         </div>
+
+        <div className="space-y-1.5 relative" ref={dropdownRef}>
+          <label className="text-xs font-bold text-slate-500 ml-1">個案姓名 (可搜尋)</label>
+          <div className="relative">
+            <input 
+              type="text"
+              placeholder="輸入關鍵字搜尋個案..."
+              className="w-full p-4 border rounded-2xl text-sm bg-slate-50 pl-11 focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
+              value={clientSearch}
+              onFocus={() => setShowDropdown(true)}
+              onChange={(e) => {
+                setClientSearch(e.target.value);
+                setFormData({ ...formData, clientName: e.target.value });
+                setShowDropdown(true);
+              }}
+            />
+            <Search className="absolute left-4 top-4 text-slate-400" size={18} />
+          </div>
+          
+          {showDropdown && filteredClients.length > 0 && (
+            <div className="absolute z-20 w-full mt-2 bg-white border rounded-2xl shadow-2xl max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2">
+              <div className="p-2">
+                {filteredClients.map((client, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => selectClient(client)}
+                    className="w-full text-left p-3 rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-colors flex items-center justify-between group"
+                  >
+                    <span className="font-medium">{client}</span>
+                    <CheckCircle2 size={14} className="opacity-0 group-hover:opacity-100" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-6">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 ml-1">個案姓名</label>
-            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.clientName} onChange={e => setFormData({...formData, clientName: e.target.value})}>
-              {options.clients.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-500 ml-1">補助項目</label>
-            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.item} onChange={e => setFormData({...formData, item: e.target.value})}>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.item} onChange={e => setFormData({...formData, item: e.target.value})}>
               {options.items.map(i => <option key={i} value={i}>{i}</option>)}
             </select>
           </div>
-        </div>
-        <div className="grid grid-cols-2 gap-6">
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-500 ml-1">金額 ($)</label>
-            <input type="number" className="w-full p-4 border rounded-2xl text-sm bg-slate-50 font-bold" value={formData.amount} onChange={e => setFormData({...formData, amount: Number(e.target.value)})} />
+            <input type="number" className="w-full p-4 border rounded-2xl text-sm bg-slate-50 font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.amount} onChange={e => setFormData({...formData, amount: Number(e.target.value)})} />
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-6">
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-500 ml-1">經費來源</label>
-            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50" value={formData.source} onChange={e => setFormData({...formData, source: e.target.value})}>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.source} onChange={e => setFormData({...formData, source: e.target.value})}>
               {options.sources.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-500 ml-1">備註</label>
-          <div className="flex flex-col gap-3">
-            <select className="w-full p-3 border rounded-xl text-xs bg-slate-50" value="" onChange={e => e.target.value && setFormData({...formData, remarks: e.target.value})}>
-              <option value="">從常用備註選擇...</option>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 ml-1">備註常用選項</label>
+            <select className="w-full p-4 border rounded-2xl text-sm bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none" value="" onChange={e => e.target.value && setFormData({...formData, remarks: e.target.value})}>
+              <option value="">快速填入備註...</option>
               {options.remarks.map(rem => <option key={rem} value={rem}>{rem}</option>)}
             </select>
-            <textarea placeholder="或在此手動輸入詳細備註..." className="w-full p-4 border rounded-2xl text-sm min-h-24" value={formData.remarks} onChange={e => setFormData({...formData, remarks: e.target.value})} />
           </div>
         </div>
-        <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-indigo-700 active:scale-95 transition-all">儲存核銷</button>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-500 ml-1">詳細備註</label>
+          <textarea placeholder="請在此輸入詳細備註說明..." className="w-full p-4 border rounded-2xl text-sm min-h-24 focus:ring-2 focus:ring-indigo-500 outline-none bg-slate-50/30" value={formData.remarks} onChange={e => setFormData({...formData, remarks: e.target.value})} />
+        </div>
+        
+        <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-xl shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all">儲存核銷紀錄</button>
       </form>
     </div>
   );
