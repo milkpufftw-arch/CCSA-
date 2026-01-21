@@ -29,11 +29,11 @@ const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => v
   return (
     <div className="w-64 bg-slate-900 h-screen fixed left-0 top-0 text-white flex flex-col z-50">
       <div className="p-6 border-b border-slate-800">
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <span className="bg-indigo-500 p-1.5 rounded-lg text-white">NGO</span>
-          核銷系統
+        <h1 className="text-xl font-bold flex flex-col gap-0.5">
+          <span className="bg-indigo-500 w-fit px-2 py-0.5 rounded text-[10px] text-white font-black tracking-widest uppercase">CCSA</span>
+          <span className="text-lg tracking-tight">個案經濟補助</span>
         </h1>
-        <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">補助驗證系統 v9.8</p>
+        <p className="text-[10px] text-slate-500 mt-2 font-medium tracking-widest uppercase">Verification System v9.9</p>
       </div>
       <nav className="flex-1 mt-6 px-4 space-y-2">
         {menuItems.map((item) => (
@@ -395,7 +395,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
         <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-3xl text-white mb-10 shadow-2xl">
           <ShieldCheck size={40} />
         </div>
-        <h1 className="text-3xl font-black text-slate-900 mb-2 uppercase tracking-tight">NGO Portal</h1>
+        <h1 className="text-2xl font-black text-slate-900 mb-2 uppercase tracking-tighter">CCSA個案經濟補助</h1>
         <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-12">核銷系統存取控制</p>
         <form onSubmit={handleSubmit} className="space-y-6">
           <input 
