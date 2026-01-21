@@ -619,9 +619,6 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
           {error && <p className="text-red-500 text-[10px] font-bold mt-2 animate-pulse">通行碼錯誤，請重新輸入</p>}
           <button type="submit" className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-lg hover:shadow-2xl active:scale-95 transition-all">驗證身分</button>
         </form>
-        <div className="mt-12 pt-8 border-t border-slate-50">
-          <p className="text-[10px] text-slate-300 font-medium">系統測試通行碼：2025ngo</p>
-        </div>
       </div>
     </div>
   );
