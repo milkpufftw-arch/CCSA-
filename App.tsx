@@ -5,12 +5,12 @@ import {
   LayoutDashboard, FileUp, ListChecks, PlusCircle, LogOut, 
   CheckCircle2, Loader2, Sparkles, Trash2, Eye, EyeOff, RotateCcw, 
   Settings as SettingsIcon, Download, Plus, X, CloudUpload, ExternalLink, CloudCheck, CloudOff, ListOrdered,
-  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock
+  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock, FileSpreadsheet, ListPlus
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { NGO_CONFIG, MOCK_RECORDS } from './constants';
 import { SubsidyRecord, AppTab, NGOOptions } from './types';
-import { parseExcelFile } from './services/excelService';
+import { parseExcelFile, parseSettingsExcel } from './services/excelService';
 import { getFinancialInsights } from './services/geminiService';
 import { syncToGoogleSheets } from './services/googleSheetsService';
 
@@ -64,22 +64,56 @@ const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => v
 // --- 子組件：系統設定 ---
 const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions: React.Dispatch<React.SetStateAction<NGOOptions>> }) => {
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [showBulkPaste, setShowBulkPaste] = useState<string | null>(null);
+  const [bulkText, setBulkText] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
 
   const addItem = (key: keyof NGOOptions) => {
     const val = inputValues[key]?.trim();
     if (!val) return;
-    setOptions(prev => ({ ...prev, [key]: [...(prev[key] as string[]), val] }));
+    setOptions(prev => ({ ...prev, [key]: [...new Set([...(prev[key] as string[]), val])] }));
     setInputValues(prev => ({ ...prev, [key]: '' }));
+  };
+
+  const addBulkItems = (key: keyof NGOOptions) => {
+    const items = bulkText.split(/[\n,，]+/).map(s => s.trim()).filter(s => s);
+    if (items.length === 0) return;
+    setOptions(prev => ({ ...prev, [key]: [...new Set([...(prev[key] as string[]), ...items])] }));
+    setBulkText("");
+    setShowBulkPaste(null);
   };
 
   const removeItem = (key: keyof NGOOptions, index: number) => {
     setOptions(prev => ({ ...prev, [key]: (prev[key] as string[]).filter((_, i) => i !== index) }));
   };
 
+  const handleSettingsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    setIsImporting(true);
+    try {
+      const result = await parseSettingsExcel(e.target.files[0]);
+      setOptions(prev => {
+        const next = { ...prev };
+        (Object.keys(result) as Array<keyof NGOOptions>).forEach(key => {
+          if (Array.isArray(result[key])) {
+            next[key] = [...new Set([...(next[key] as string[]), ...(result[key] as string[])])] as any;
+          }
+        });
+        return next;
+      });
+      alert("設定檔解析完成，已合併不重複項目！");
+    } catch (err: any) {
+      alert("匯入失敗: " + err.message);
+    } finally {
+      setIsImporting(false);
+      e.target.value = '';
+    }
+  };
+
   const sections = [
     { key: 'regions', label: '區域' },
     { key: 'workers', label: '社工姓名' },
-    { key: 'clients', label: '姓名' },
+    { key: 'clients', label: '個案姓名' },
     { key: 'items', label: '補助項目' },
     { key: 'sources', label: '經費來源' },
     { key: 'remarks', label: '備註常用選項' },
@@ -87,47 +121,93 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <h3 className="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-          <CloudUpload size={20} className="text-indigo-500" /> Google 試算表連動設定
-        </h3>
-        <input 
-          type="text"
-          placeholder="貼上 Google Apps Script URL..."
-          className="w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
-          value={options.syncUrl || ''}
-          onChange={(e) => setOptions(prev => ({ ...prev, syncUrl: e.target.value }))}
-        />
-        <p className="mt-3 text-[10px] text-slate-400 leading-relaxed italic">提示：將 GAS ID 貼上後，系統會自動在背景與您的雲端表單進行對接。</p>
+      {/* 頂部工具列 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
+            <CloudUpload size={20} className="text-indigo-500" /> Google 試算表連動設定
+          </h3>
+          <input 
+            type="text"
+            placeholder="貼上 Google Apps Script URL..."
+            className="w-full bg-slate-50 border rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
+            value={options.syncUrl || ''}
+            onChange={(e) => setOptions(prev => ({ ...prev, syncUrl: e.target.value }))}
+          />
+        </div>
+
+        <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 p-6 rounded-2xl shadow-lg text-white">
+          <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
+            <FileSpreadsheet size={20} /> 快速同步對照表
+          </h3>
+          <p className="text-indigo-100 text-xs mb-4">如果您已經有 Excel 設定表，可直接匯入更新所有名單。</p>
+          <input type="file" id="settingsExcel" className="hidden" accept=".xlsx,.xls" onChange={handleSettingsExcel} />
+          <label htmlFor="settingsExcel" className="inline-flex items-center gap-2 bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold text-sm cursor-pointer hover:bg-indigo-50 transition-all">
+            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <ListPlus size={16} />}
+            從 Excel 批次匯入設定
+          </label>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {sections.map(section => (
-          <div key={section.key} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full">
-            <h3 className="font-bold text-slate-900 mb-4">{section.label}</h3>
-            <div className="flex gap-2 mb-4">
-              <input 
-                type="text"
-                placeholder="新增..."
-                className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                value={inputValues[section.key] || ''}
-                onChange={(e) => setInputValues({...inputValues, [section.key]: e.target.value})}
-                onKeyDown={(e) => e.key === 'Enter' && addItem(section.key as keyof NGOOptions)}
-              />
-              <button onClick={() => addItem(section.key as keyof NGOOptions)} className="bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700">
-                <Plus size={18}/>
+          <div key={section.key} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-full relative overflow-hidden">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="font-bold text-slate-900">{section.label}</h3>
+              <button 
+                onClick={() => setShowBulkPaste(section.key)}
+                className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-md hover:bg-slate-200 transition-colors flex items-center gap-1 font-bold"
+              >
+                <ClipboardCheck size={12} /> 批量貼上
               </button>
             </div>
-            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto py-1">
-              {(options[section.key as keyof NGOOptions] as string[]).map((item, idx) => (
-                <span key={idx} className="bg-slate-50 text-slate-700 px-3 py-1 rounded-xl text-[11px] font-medium flex items-center gap-2 group border">
-                  {item}
-                  <button onClick={() => removeItem(section.key as keyof NGOOptions, idx)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
-                    <X size={14}/>
+
+            {showBulkPaste === section.key ? (
+              <div className="absolute inset-0 z-10 bg-white p-6 flex flex-col animate-in slide-in-from-bottom-5">
+                <div className="flex justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase">貼上清單 (換行分隔)</span>
+                  <button onClick={() => setShowBulkPaste(null)} className="text-slate-400 hover:text-slate-600"><X size={16}/></button>
+                </div>
+                <textarea 
+                  className="flex-1 border rounded-xl p-3 text-sm bg-slate-50 mb-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder={`例如：\n姓名A\n姓名B\n姓名C`}
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                />
+                <button 
+                  onClick={() => addBulkItems(section.key as keyof NGOOptions)}
+                  className="bg-indigo-600 text-white py-2 rounded-xl text-sm font-bold shadow-md"
+                >
+                  確認加入
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2 mb-4">
+                  <input 
+                    type="text"
+                    placeholder="新增..."
+                    className="flex-1 bg-slate-50 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={inputValues[section.key] || ''}
+                    onChange={(e) => setInputValues({...inputValues, [section.key]: e.target.value})}
+                    onKeyDown={(e) => e.key === 'Enter' && addItem(section.key as keyof NGOOptions)}
+                  />
+                  <button onClick={() => addItem(section.key as keyof NGOOptions)} className="bg-indigo-600 text-white p-2 rounded-xl hover:bg-indigo-700">
+                    <Plus size={18}/>
                   </button>
-                </span>
-              ))}
-            </div>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto py-1">
+                  {(options[section.key as keyof NGOOptions] as string[]).map((item, idx) => (
+                    <span key={idx} className="bg-slate-50 text-slate-700 px-3 py-1 rounded-xl text-[11px] font-medium flex items-center gap-2 group border">
+                      {item}
+                      <button onClick={() => removeItem(section.key as keyof NGOOptions, idx)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
+                        <X size={14}/>
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         ))}
       </div>

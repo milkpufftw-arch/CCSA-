@@ -1,6 +1,6 @@
 
 import * as XLSX from 'xlsx';
-import { SubsidyRecord } from '../types';
+import { SubsidyRecord, NGOOptions } from '../types';
 
 export const parseExcelFile = async (
   file: File, 
@@ -64,6 +64,64 @@ export const parseExcelFile = async (
         });
 
         resolve(records);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsBinaryString(file);
+  });
+};
+
+/**
+ * 專門解析設定檔（對照表）的 Excel
+ */
+export const parseSettingsExcel = async (file: File): Promise<Partial<NGOOptions>> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        if (jsonData.length === 0) throw new Error("檔案內容為空。");
+
+        const headers = jsonData[0].map(h => String(h || '').trim());
+        const rows = jsonData.slice(1);
+
+        const result: Partial<NGOOptions> = {
+          workers: [],
+          regions: [],
+          clients: [],
+          items: [],
+          sources: []
+        };
+
+        const mapHeader = (h: string) => {
+          if (h.includes('社工')) return 'workers';
+          if (h.includes('區域') || h.includes('歸屬')) return 'regions';
+          if (h.includes('姓名') || h.includes('個案')) return 'clients';
+          if (h.includes('項目') || h.includes('補助')) return 'items';
+          if (h.includes('來源') || h.includes('經費')) return 'sources';
+          return null;
+        };
+
+        headers.forEach((h, colIdx) => {
+          const key = mapHeader(h);
+          if (key) {
+            const values = rows
+              .map(row => row[colIdx])
+              .filter(val => val !== undefined && val !== null && String(val).trim() !== '')
+              .map(val => String(val).trim());
+            
+            // 使用 Set 去重
+            result[key as keyof NGOOptions] = Array.from(new Set(values)) as any;
+          }
+        });
+
+        resolve(result);
       } catch (err) {
         reject(err);
       }
