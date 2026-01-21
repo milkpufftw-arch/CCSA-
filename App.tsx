@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FileUp, ListChecks, PlusCircle, LogOut, 
   CheckCircle2, Loader2, Sparkles, Trash2, Eye, EyeOff, RotateCcw, 
   Settings as SettingsIcon, Download, Plus, X, CloudUpload, ExternalLink, CloudCheck, CloudOff, ListOrdered,
-  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock, FileSpreadsheet, ListPlus, Search, Edit2, Save
+  ClipboardCheck, AlertCircle, Copy, Check, ShieldCheck, Lock, FileSpreadsheet, ListPlus, Search, Edit2, Save, KeyRound
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { NGO_CONFIG, MOCK_RECORDS } from './constants';
@@ -15,6 +15,13 @@ import { getFinancialInsights } from './services/geminiService';
 import { syncToGoogleSheets } from './services/googleSheetsService';
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+// --- 修正 Window 介面擴充，使用系統內建的 AIStudio 類型以解決宣告衝突 ---
+declare global {
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
 
 // --- 子組件：側邊欄 ---
 const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => void }) => {
@@ -61,7 +68,116 @@ const Sidebar = ({ activeTab, onLogout }: { activeTab: string, onLogout: () => v
   );
 };
 
-// --- 子組件：系統設定 ---
+// --- 子組件：儀表板 ---
+const Dashboard = ({ records }: { records: SubsidyRecord[] }) => {
+  const totalAmount = useMemo(() => records.reduce((sum, r) => sum + r.amount, 0), [records]);
+  const [insight, setInsight] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [isKeyMissing, setIsKeyMissing] = useState(false);
+
+  // 初始檢查是否已選擇 API Key
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setIsKeyMissing(!hasKey);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleOpenKeyDialog = async () => {
+    try {
+      await window.aistudio.openSelectKey();
+      // 假設選擇成功並繼續
+      setIsKeyMissing(false);
+      generateAI();
+    } catch (e) {
+      console.error("Failed to open key dialog");
+    }
+  };
+
+  const generateAI = async () => {
+    if (records.length === 0) return;
+    setLoading(true);
+    const result = await getFinancialInsights(records);
+    
+    if (result === "NOT_CONFIGURED" || result === "KEY_EXPIRED") {
+      setIsKeyMissing(true);
+      setInsight("");
+    } else {
+      setInsight(result);
+      setIsKeyMissing(false);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in">
+      <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 text-indigo-50"><CloudUpload size={80}/></div>
+        <p className="text-slate-400 text-xs font-black uppercase tracking-widest relative z-10">核銷累計總額</p>
+        <p className="text-5xl font-black text-indigo-600 mt-4 relative z-10">${totalAmount.toLocaleString()}</p>
+      </div>
+      
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-black flex items-center gap-2">
+            <Sparkles className="text-indigo-500" size={22}/> AI 財務洞察分析
+          </h2>
+          {!isKeyMissing && (
+            <button 
+              onClick={generateAI} 
+              disabled={loading || records.length === 0} 
+              className="bg-indigo-600 text-white px-6 py-2 rounded-2xl text-xs font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {loading ? '分析中...' : '生成趨勢報告'}
+            </button>
+          )}
+        </div>
+
+        {isKeyMissing ? (
+          <div className="text-center py-16 bg-indigo-50 rounded-2xl border border-indigo-100 flex flex-col items-center gap-4">
+            <div className="p-4 bg-white rounded-full text-indigo-600 shadow-sm">
+              <KeyRound size={32} />
+            </div>
+            <div>
+              <p className="font-bold text-indigo-900">需要設定 AI 服務</p>
+              <p className="text-sm text-indigo-600/70 mt-1 max-w-xs mx-auto">
+                為了保障數據隱私，請點擊下方按鈕以連結您的 AI 金鑰來啟動智慧分析功能。
+              </p>
+            </div>
+            <button 
+              onClick={handleOpenKeyDialog}
+              className="mt-2 bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold text-sm shadow-xl shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2"
+            >
+              <ExternalLink size={16} /> 點擊設定 AI 金鑰
+            </button>
+            <p className="text-[10px] text-indigo-400 mt-2 italic">
+              * 請選擇具備帳單權限的付費項目 (ai.google.dev/gemini-api/docs/billing)
+            </p>
+          </div>
+        ) : insight ? (
+          <div className="bg-slate-50 p-6 rounded-2xl relative border">
+            <button 
+              onClick={() => { navigator.clipboard.writeText(insight); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
+              className="absolute top-4 right-4 p-2 bg-white rounded-lg shadow-sm hover:bg-slate-50 transition-colors"
+            >
+              {copied ? <Check size={16} className="text-emerald-500"/> : <Copy size={16} className="text-slate-400"/>}
+            </button>
+            <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed font-medium">{insight}</div>
+          </div>
+        ) : (
+          <div className="text-center py-20 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-100">
+            <p className="text-slate-400 text-sm font-medium">目前尚無分析資料，點擊按鈕啟動 AI 生成報告。</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions: React.Dispatch<React.SetStateAction<NGOOptions>> }) => {
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [showBulkPaste, setShowBulkPaste] = useState<string | null>(null);
@@ -280,7 +396,6 @@ const SettingsPage = ({ options, setOptions }: { options: NGOOptions, setOptions
   );
 };
 
-// --- 子組件：單筆補登 ---
 const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, options: NGOOptions }) => {
   const [formData, setFormData] = useState({ 
     region: options.regions[0] || '',
@@ -432,7 +547,6 @@ const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, op
   );
 };
 
-// --- 子組件：批次匯入 ---
 const ImportTab = ({ onImport, options }: { onImport: (newRecords: SubsidyRecord[]) => void, options: NGOOptions }) => {
   const [file, setFile] = useState<File | null>(null);
   const [region, setRegion] = useState(options.regions[0] || '');
@@ -492,7 +606,6 @@ const ImportTab = ({ onImport, options }: { onImport: (newRecords: SubsidyRecord
   );
 };
 
-// --- 子組件：紀錄查詢 ---
 const RecordsTable = ({ records, onDelete, onClearAll, syncUrl }: { records: SubsidyRecord[], onDelete: (id: string) => void, onClearAll: () => void, syncUrl?: string }) => {
   const [syncing, setSyncing] = useState(false);
 
@@ -538,52 +651,6 @@ const RecordsTable = ({ records, onDelete, onClearAll, syncUrl }: { records: Sub
   );
 };
 
-// --- 子組件：儀表板 ---
-const Dashboard = ({ records }: { records: SubsidyRecord[] }) => {
-  const totalAmount = useMemo(() => records.reduce((sum, r) => sum + r.amount, 0), [records]);
-  const [insight, setInsight] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const generateAI = async () => {
-    if (records.length === 0) return;
-    setLoading(true);
-    setInsight(await getFinancialInsights(records));
-    setLoading(false);
-  };
-
-  return (
-    <div className="space-y-8 animate-in fade-in">
-      <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-8 text-indigo-50"><CloudUpload size={80}/></div>
-        <p className="text-slate-400 text-xs font-black uppercase tracking-widest relative z-10">核銷累計總額</p>
-        <p className="text-5xl font-black text-indigo-600 mt-4 relative z-10">${totalAmount.toLocaleString()}</p>
-      </div>
-      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-black flex items-center gap-2"><Sparkles className="text-indigo-500" size={22}/> AI 財務洞察分析</h2>
-          <button onClick={generateAI} disabled={loading || records.length === 0} className="bg-indigo-600 text-white px-6 py-2 rounded-2xl text-xs font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50">
-            {loading ? '分析中...' : '生成趨勢報告'}
-          </button>
-        </div>
-        {insight ? (
-          <div className="bg-slate-50 p-6 rounded-2xl relative border">
-            <button onClick={() => { navigator.clipboard.writeText(insight); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="absolute top-4 right-4 p-2 bg-white rounded-lg shadow-sm">
-              {copied ? <Check size={16} className="text-emerald-500"/> : <Copy size={16} className="text-slate-400"/>}
-            </button>
-            <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed font-medium">{insight}</div>
-          </div>
-        ) : (
-          <div className="text-center py-20 bg-slate-50/50 rounded-2xl border-2 border-dashed border-slate-100">
-            <p className="text-slate-400 text-sm font-medium">目前尚無分析資料，點擊按鈕啟動 AI 生成報告。</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// --- 子組件：登入介面 ---
 const LoginScreen = ({ onLogin }: { onLogin: () => void }) => {
   const [pass, setPass] = useState('');
   const [error, setError] = useState(false);
