@@ -16,7 +16,12 @@ import { syncToGoogleSheets } from './services/googleSheetsService';
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-// --- 修正 Window 介面擴充，使用系統內建的 AIStudio 類型以解決宣告衝突 ---
+// --- 修正 Window 介面擴充 ---
+interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
 declare global {
   interface Window {
     aistudio: AIStudio;
@@ -118,7 +123,7 @@ const Dashboard = ({ records }: { records: SubsidyRecord[] }) => {
       <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 text-indigo-50"><CloudUpload size={80}/></div>
         <p className="text-slate-400 text-xs font-black uppercase tracking-widest relative z-10">核銷累計總額</p>
-        <p className="text-5xl font-black text-indigo-600 mt-4 relative z-10">${totalAmount.toLocaleString()}</p>
+        <p className="text-5xl font-black text-indigo-600 mt-4 relative z-10">NT${totalAmount.toLocaleString()}</p>
       </div>
       
       <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border">
@@ -515,7 +520,7 @@ const ManualEntry = ({ onAdd, options }: { onAdd: (r: SubsidyRecord) => void, op
             </select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 ml-1">金額 ($)</label>
+            <label className="text-xs font-bold text-slate-500 ml-1">金額 (NT$)</label>
             <input type="number" className="w-full p-4 border rounded-2xl text-sm bg-slate-50 font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.amount} onChange={e => setFormData({...formData, amount: Number(e.target.value)})} />
           </div>
         </div>
@@ -598,7 +603,7 @@ const ImportTab = ({ onImport, options }: { onImport: (newRecords: SubsidyRecord
             <button onClick={() => { onImport(preview); setPreview([]); setFile(null); alert("匯入成功！"); }} className="bg-emerald-500 text-white px-6 py-2 rounded-xl font-bold">確認匯入本地</button>
           </div>
           <div className="max-h-60 overflow-y-auto bg-slate-800 p-4 rounded-xl text-xs text-slate-400">
-            {preview.map((p, i) => <div key={i} className="py-1 border-b border-slate-700">{p.clientName} - {p.item} (${p.amount})</div>)}
+            {preview.map((p, i) => <div key={i} className="py-1 border-b border-slate-700">{p.clientName} - {p.item} (NT${p.amount})</div>)}
           </div>
         </div>
       )}
@@ -640,7 +645,7 @@ const RecordsTable = ({ records, onDelete, onClearAll, syncUrl }: { records: Sub
                 <td className="p-6 font-bold">{r.clientName}</td>
                 <td className="p-6">{r.item}</td>
                 <td className="p-6"><span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-bold">{r.source}</span></td>
-                <td className="p-6 text-right font-black text-indigo-600">${r.amount.toLocaleString()}</td>
+                <td className="p-6 text-right font-black text-indigo-600">NT${r.amount.toLocaleString()}</td>
                 <td className="p-6 text-center"><button onClick={() => onDelete(r.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={16}/></button></td>
               </tr>
             ))}
